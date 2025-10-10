@@ -576,7 +576,7 @@ class Builder
 
             foreach ($iterable as $children) {
                 $children = is_array($children) ? new EntityCollection($children) : $children;
-
+                
                 $shopwareProducts = $this->productHelper->getShopwareProducts($children->getIds(), $context, true);
                 foreach ($children as $variationProduct) {
                     $shopwareProduct = $shopwareProducts->get($variationProduct->getId());
