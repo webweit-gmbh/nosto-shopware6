@@ -202,7 +202,7 @@ class ProductSyncHandler implements Job\JobHandlerInterface
             }
 
             $shopwareProducts = $handledProducts->count()
-                ? $this->productHelper->getShopwareProducts($handledProducts->getIds(), $context)
+                ? $this->productHelper->getShopwareProducts($handledProducts->getIds(), $context, true)
                 : new ProductCollection();
 
             foreach ($handledProducts as $handledProduct) {

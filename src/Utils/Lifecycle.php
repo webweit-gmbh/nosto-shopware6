@@ -255,7 +255,7 @@ class Lifecycle
 
     protected function removeOldTagsForChannel(?string $channelId = null): void
     {
-        $configService = $this->container->get(NostoConfigService::class);
+        $configService = new NostoConfigService($this->connection);
 
         for ($i = 1; $i < 4; ++$i) {
             $configService->delete(NostoConfigService::TAG_FIELD_TEMPLATE . $i, $channelId);

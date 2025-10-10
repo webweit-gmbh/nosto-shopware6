@@ -31,6 +31,7 @@ use Shopware\Core\Content\Product\ProductEntity;
 use Shopware\Core\Content\Product\SalesChannel\SalesChannelProductEntity;
 use Shopware\Core\Defaults;
 use Shopware\Core\Framework\Context;
+use Shopware\Core\Framework\DataAbstractionLayer\EntityCollection;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Filter\EqualsAnyFilter;
@@ -543,7 +544,7 @@ class Builder
             $salesChannelId = $context->getSalesChannelId();
             $languageId = $context->getLanguageId();
 
-            $criteria = new Criteria();
+            $criteria = new Criteria($product->getChildren()->getIds());
             $criteria->addAssociation('media');
             $criteria->addAssociation('cover');
             $criteria->addAssociation('options.group');
@@ -551,7 +552,6 @@ class Builder
             $criteria->addAssociation('manufacturer');
             $criteria->addAssociation('categoriesRo');
             $criteria->addAssociation('visibilities');
-            $criteria->addFilter(new EqualsAnyFilter('id', $product->getChildren()->getIds()));
 
             if (!$this->configProvider->isEnabledSyncInactiveProducts($salesChannelId, $languageId)) {
                 $criteria->addFilter(new EqualsFilter('active', true));
@@ -567,10 +567,17 @@ class Builder
                 );
             }
 
-            $iterator = $this->productHelper->createRepositoryIterator($criteria, $context->getContext());
+            $isChildrenDataAlreadyLoaded = $product->getChildren()?->first()?->getCategoriesRo() !== null;
+            if ($isChildrenDataAlreadyLoaded) {
+                $iterable = array_chunk($product->getChildren()?->getElements() ?? [], 50);
+            } else {
+                $iterable = $this->productHelper->createRepositoryIterator($criteria, $context->getContext());
+            }
 
-            while (($children = $iterator->fetch()) !== null) {
-                $shopwareProducts = $this->productHelper->getShopwareProducts($children->getIds(), $context);
+            foreach ($iterable as $children) {
+                $children = is_array($children) ? new EntityCollection($children) : $children;
+
+                $shopwareProducts = $this->productHelper->getShopwareProducts($children->getIds(), $context, true);
                 foreach ($children as $variationProduct) {
                     $shopwareProduct = $shopwareProducts->get($variationProduct->getId());
                     $skuCollection->append($this->skuBuilder->build($shopwareProduct ?: $variationProduct, $context));
