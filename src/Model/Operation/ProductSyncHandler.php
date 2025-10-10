@@ -164,7 +164,6 @@ class ProductSyncHandler implements Job\JobHandlerInterface
             $languageId,
         );
         $domain = parse_url($domainUrl, PHP_URL_HOST);
-        $operation = new UpsertProduct($account->getNostoAccount(), $domain);
 
         $hideProductsAfterClearance = $this->systemConfigService->getBool(
             'core.listing.hideCloseoutProductsWhenOutOfStock',
@@ -202,7 +201,7 @@ class ProductSyncHandler implements Job\JobHandlerInterface
             }
 
             $shopwareProducts = $handledProducts->count()
-                ? $this->productHelper->getShopwareProducts($handledProducts->getIds(), $context)
+                ? $this->productHelper->getShopwareProducts($handledProducts->getIds(), $context, true)
                 : new ProductCollection();
 
             foreach ($handledProducts as $handledProduct) {
@@ -242,12 +241,13 @@ class ProductSyncHandler implements Job\JobHandlerInterface
                     continue;
                 }
 
+                $operation = new UpsertProduct($account->getNostoAccount(), $domain);
                 $operation->addProduct($preparedProductForSync);
+
+                $this->eventDispatcher->dispatch(new BeforeUpsertProductsEvent($operation, $context->getContext()));
+                $operation->upsert();
             }
         }
-
-        $this->eventDispatcher->dispatch(new BeforeUpsertProductsEvent($operation, $context->getContext()));
-        $operation->upsert();
     }
 
     protected function handleProduct(

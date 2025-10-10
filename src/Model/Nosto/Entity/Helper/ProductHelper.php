@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Nosto\NostoIntegration\Model\Nosto\Entity\Helper;
 
+use Doctrine\DBAL\ArrayParameterType;
+use Doctrine\DBAL\Connection;
 use Nosto\NostoIntegration\Enums\StockFieldOptions;
 use Nosto\NostoIntegration\Model\ConfigProvider;
 use Nosto\NostoIntegration\Model\Nosto\Entity\Product\Event\ProductLoadExistingCriteriaEvent;
@@ -15,7 +17,6 @@ use Nosto\NostoIntegration\Search\Response\GraphQL\Filter\Values\FilterValue;
 use Nosto\NostoIntegration\Struct\FiltersExtension;
 use Nosto\NostoIntegration\Struct\IdToFieldMapping;
 use Shopware\Core\Content\Product\ProductEntity;
-use Shopware\Core\Content\Product\SalesChannel\Detail\AbstractProductDetailRoute;
 use Shopware\Core\Content\Product\SalesChannel\SalesChannelProductCollection;
 use Shopware\Core\Content\Product\SalesChannel\SalesChannelProductEntity;
 use Shopware\Core\Content\Property\Aggregate\PropertyGroupOption\PropertyGroupOptionCollection;
@@ -30,6 +31,7 @@ use Shopware\Core\Framework\DataAbstractionLayer\Search\Filter\EqualsAnyFilter;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Filter\EqualsFilter;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Filter\MultiFilter;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Filter\NotFilter;
+use Shopware\Core\Framework\Uuid\Uuid;
 use Shopware\Core\System\SalesChannel\Entity\SalesChannelRepository;
 use Shopware\Core\System\SalesChannel\SalesChannelContext;
 use Symfony\Component\Routing\RequestContext;
@@ -39,8 +41,8 @@ use Symfony\Contracts\EventDispatcher\EventDispatcherInterface;
 class ProductHelper
 {
     public function __construct(
+        private readonly Connection $connection,
         private readonly EntityRepository $productRepository,
-        private readonly AbstractProductDetailRoute $productRoute,
         private readonly EntityRepository $reviewRepository,
         private readonly EventDispatcherInterface $eventDispatcher,
         private readonly ConfigProvider $configProvider,
@@ -172,9 +174,9 @@ class ProductHelper
         $criteria = $this->getCommonCriteria();
         $this->getCommonCriteriaChildren($criteria);
         $criteria->setLimit(100);
-        $criteria->addAssociation('children.manufacturer');
         $criteria->addAssociation('children.manufacturer.media');
         $criteria->addAssociation('children.categoriesRo');
+        $criteria->addAssociation('children.visibilities');
 
         if (!$this->configProvider->isEnabledSyncInactiveProducts($salesChannelId, $languageId)) {
             $criteria->addFilter(new EqualsFilter('active', true));
@@ -231,16 +233,29 @@ class ProductHelper
      */
     public function loadOrderNumberMapping(array $ids, Context $context): array
     {
-        $criteria = new Criteria($ids);
-        $iterator = new RepositoryIterator($this->productRepository, $context, $criteria);
-        $orderNumberMapping = [];
-        while (($result = $iterator->fetch()) !== null) {
-            foreach ($result as $product) {
-                $orderNumberMapping[$product->getId()] = $product->getProductNumber();
+        $query = $this->connection->createQueryBuilder()
+            ->select(
+                'LOWER(HEX(p.id)) AS id',
+                'p.product_number AS productNumber',
+            )
+            ->from('product', 'p')
+            ->where('p.id in (:ids)')
+            ->andWhere('p.version_id = :version_id')
+            ->setParameter('ids', Uuid::fromHexToBytesList($ids), ArrayParameterType::BINARY)
+            ->setParameter('version_id', Uuid::fromHexToBytes($context->getVersionId()));
+
+        $result = [];
+        foreach ($query->executeQuery()->fetchAllAssociative() as $row) {
+            $id = $row['id'] ?? null;
+            $productNumber = $row['productNumber'] ?? null;
+            if (!is_string($id) || !is_string($productNumber)) {
+                continue;
             }
+
+            $result[$id] = $productNumber;
         }
 
-        return $orderNumberMapping;
+        return $result;
     }
 
     public function getProductUrl(ProductEntity $product, SalesChannelContext $context): ?string
@@ -260,9 +275,12 @@ class ProductHelper
         return null;
     }
 
-    public function createRepositoryIterator(Criteria $criteria, Context $context): RepositoryIterator
+    public function createRepositoryIterator(Criteria $criteria, Context $context): iterable
     {
-        return new RepositoryIterator($this->productRepository, $context, $criteria);
+        $iterator = new RepositoryIterator($this->productRepository, $context, $criteria);
+        while (($result = $iterator->fetch()) !== null) {
+            yield $result;
+        }
     }
 
     public function getShopwareProducts(
