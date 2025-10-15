@@ -145,9 +145,4 @@ class NostoIntegration extends Plugin
 
         $configLoader->load($confDir . '/{packages}/*.yaml', 'glob');
     }
-
-    public function executeComposerCommands(): bool
-    {
-        return true;
-    }
 }
