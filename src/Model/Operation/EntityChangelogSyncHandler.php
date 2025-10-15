@@ -4,22 +4,19 @@ declare(strict_types=1);
 
 namespace Nosto\NostoIntegration\Model\Operation;
 
+use Doctrine\DBAL\ArrayParameterType;
+use Doctrine\DBAL\Connection;
 use Nosto\NostoIntegration\Async\CategorySyncMessage;
 use Nosto\NostoIntegration\Async\EntityChangelogSyncMessage;
 use Nosto\NostoIntegration\Async\EventsWriter;
 use Nosto\NostoIntegration\Async\MarketingPermissionSyncMessage;
 use Nosto\NostoIntegration\Async\OrderSyncMessage;
 use Nosto\NostoIntegration\Async\ProductSyncMessage;
-use Nosto\NostoIntegration\Entity\Changelog\ChangelogEntity;
+use Nosto\NostoIntegration\Entity\Changelog\ChangelogDefinition;
 use Nosto\Scheduler\Model\Job\{GeneratingHandlerInterface, JobHandlerInterface, JobResult, Message\InfoMessage};
 use Nosto\Scheduler\Model\JobScheduler;
 use Shopware\Core\Content\Product\ProductDefinition;
 use Shopware\Core\Framework\Context;
-use Shopware\Core\Framework\DataAbstractionLayer\Dbal\Common\RepositoryIterator;
-use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
-use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
-use Shopware\Core\Framework\DataAbstractionLayer\Search\Filter\EqualsFilter;
-use Shopware\Core\Framework\DataAbstractionLayer\Search\Sorting\FieldSorting;
 use Shopware\Core\Framework\Uuid\Uuid;
 
 class EntityChangelogSyncHandler implements JobHandlerInterface, GeneratingHandlerInterface
@@ -29,7 +26,7 @@ class EntityChangelogSyncHandler implements JobHandlerInterface, GeneratingHandl
     private const BATCH_SIZE = 100;
 
     public function __construct(
-        private readonly EntityRepository $entityChangelogRepository,
+        private readonly Connection $connection,
         private readonly JobScheduler $jobScheduler,
     ) {
     }
@@ -52,7 +49,7 @@ class EntityChangelogSyncHandler implements JobHandlerInterface, GeneratingHandl
     private function processMarketingPermissionEvents(Context $context, JobResult $result, string $parentJobId): void
     {
         $type = EventsWriter::NEWSLETTER_ENTITY_NAME;
-        $this->processEventBatches($context, $type, function (array $subscriberIds) use (
+        $this->processEventBatches($type, function (array $subscriberIds) use (
             $parentJobId,
             $result,
             $context
@@ -68,35 +65,53 @@ class EntityChangelogSyncHandler implements JobHandlerInterface, GeneratingHandl
         });
     }
 
-    private function processEventBatches(Context $context, string $entityType, callable $processCallback): void
+    private function processEventBatches(string $entityType, callable $processCallback): void
     {
-        $criteria = new Criteria();
-        $criteria->addFilter(new EqualsFilter('entityType', $entityType));
-        $criteria->addSorting(new FieldSorting('createdAt', FieldSorting::DESCENDING));
-        $criteria->setLimit(self::BATCH_SIZE);
+        $query = $this->connection->createQueryBuilder()
+            ->select(
+                'LOWER(HEX(entity_id)) as entityId',
+                'MIN(product_number) as productNumber',
+            )
+            ->from(ChangelogDefinition::ENTITY_NAME)
+            ->where('entity_type = :entityType')
+            ->setParameter('entityType', $entityType)
+            ->orderBy('created_at', 'ASC')
+            ->groupBy('entity_id')
+            ->setMaxResults(self::BATCH_SIZE);
 
-        $iterator = new RepositoryIterator($this->entityChangelogRepository, $context, $criteria);
+        do {
+            $ids = [];
 
-        while (($events = $iterator->fetch()) !== null) {
-            $ids = $entityType === ProductDefinition::ENTITY_NAME ?
-                $events->reduce(static function (array $result, ChangelogEntity $event): array {
-                    $result[$event->getEntityId()] = $event->getProductNumber();
-                    return $result;
-                }, []) :
-                $events->map(static fn (ChangelogEntity $event): string => $event->getEntityId());
+            foreach ($query->executeQuery()->fetchAllAssociative() as $row) {
+                $entityId = $row['entityId'] ?? null;
+                if (!is_string($entityId)) {
+                    continue;
+                }
+
+                if ($entityType !== ProductDefinition::ENTITY_NAME) {
+                    $ids[$entityId] = $entityId;
+                    continue;
+                }
+
+                $ids[$row['productNumber'] ?? null] = $entityId;
+            }
 
             $processCallback($ids);
-            $deleteDataSet = array_map(static fn ($id): array => [
-                'id' => $id,
-            ], array_values($events->getIds()));
-            $this->entityChangelogRepository->delete($deleteDataSet, $context);
-        }
+
+            $this->connection->createQueryBuilder()
+                ->delete(ChangelogDefinition::ENTITY_NAME)
+                ->where('entity_type = :entityType')
+                ->andWhere('entity_id IN (:ids)')
+                ->setParameter('entityType', $entityType)
+                ->setParameter('ids', Uuid::fromHexToBytesList(array_values($ids)), ArrayParameterType::BINARY)
+                ->executeStatement();
+        } while (!empty($ids));
     }
 
     private function processNewOrderEvents(Context $context, JobResult $result, string $parentJobId): void
     {
         $type = EventsWriter::ORDER_ENTITY_PLACED_NAME;
-        $this->processEventBatches($context, $type, function (array $orderIds) use (
+        $this->processEventBatches($type, function (array $orderIds) use (
             $parentJobId,
             $result,
             $context
@@ -119,7 +134,7 @@ class EntityChangelogSyncHandler implements JobHandlerInterface, GeneratingHandl
     private function processUpdatedOrderEvents(Context $context, JobResult $result, string $parentJobId): void
     {
         $type = EventsWriter::ORDER_ENTITY_UPDATED_NAME;
-        $this->processEventBatches($context, $type, function (array $orderIds) use (
+        $this->processEventBatches($type, function (array $orderIds) use (
             $parentJobId,
             $result,
             $context
@@ -142,7 +157,7 @@ class EntityChangelogSyncHandler implements JobHandlerInterface, GeneratingHandl
     private function processProductEvents(Context $context, JobResult $result, string $parentJobId): void
     {
         $type = EventsWriter::PRODUCT_ENTITY_NAME;
-        $this->processEventBatches($context, $type, function (array $productIds) use (
+        $this->processEventBatches($type, function (array $productIds) use (
             $parentJobId,
             $result,
             $context
@@ -158,7 +173,7 @@ class EntityChangelogSyncHandler implements JobHandlerInterface, GeneratingHandl
     private function processCategoryEvents(Context $context, JobResult $result, string $parentJobId): void
     {
         $type = EventsWriter::CATEGORY_ENTITY_NAME;
-        $this->processEventBatches($context, $type, function (array $categoryIds) use (
+        $this->processEventBatches($type, function (array $categoryIds) use (
             $parentJobId,
             $result,
             $context

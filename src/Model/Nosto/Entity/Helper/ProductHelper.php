@@ -231,18 +231,29 @@ class ProductHelper
     /**
      * @return array<string, string>
      */
-    public function loadOrderNumberMapping(array $ids, Context $context): array
+    public function loadOrderNumberMapping(array $ids, Context $context, bool $fetchParents = false): array
     {
-        $query = $this->connection->createQueryBuilder()
-            ->select(
-                'LOWER(HEX(p.id)) AS id',
-                'p.product_number AS productNumber',
-            )
+        $query = $this->connection->createQueryBuilder();
+
+        $query
             ->from('product', 'p')
             ->where('p.id in (:ids)')
             ->andWhere('p.version_id = :version_id')
             ->setParameter('ids', Uuid::fromHexToBytesList($ids), ArrayParameterType::BINARY)
             ->setParameter('version_id', Uuid::fromHexToBytes($context->getVersionId()));
+
+        if ($fetchParents) {
+            $query->select(
+                'LOWER(HEX(IFNULL(p.parent_id, p.id))) AS id',
+                'IFNULL(pp.product_number, p.product_number) AS productNumber',
+            );
+            $query->leftJoin('p', 'product', 'pp', 'pp.id = p.parent_id AND pp.version_id = p.parent_version_id');
+        } else {
+            $query->select(
+                'LOWER(HEX(p.id)) AS id',
+                'p.product_number AS productNumber',
+            );
+        }
 
         $result = [];
         foreach ($query->executeQuery()->fetchAllAssociative() as $row) {
