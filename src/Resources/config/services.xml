@@ -49,9 +49,6 @@
 
         <service id="Nosto\NostoIntegration\Model\Operation\EntityChangelogSyncHandler">
             <tag name="nosto.job_handler" code="nosto-integration-entity-changelog-sync"/>
-
-            <argument key="$entityChangelogRepository" type="service"
-                      id="nosto_integration_entity_changelog.repository"/>
         </service>
 
         <service id="Nosto\NostoIntegration\Service\ScheduledTask\OldJobCleanupScheduledTaskHandler">
