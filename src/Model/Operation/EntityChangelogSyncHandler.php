@@ -93,7 +93,11 @@ class EntityChangelogSyncHandler implements JobHandlerInterface, GeneratingHandl
                     continue;
                 }
 
-                $ids[$row['productNumber'] ?? null] = $entityId;
+                $ids[$entityId] = $row['productNumber'] ?? $entityId;
+            }
+
+            if (empty($ids)) {
+                break;
             }
 
             $processCallback($ids);
@@ -103,7 +107,7 @@ class EntityChangelogSyncHandler implements JobHandlerInterface, GeneratingHandl
                 ->where('entity_type = :entityType')
                 ->andWhere('entity_id IN (:ids)')
                 ->setParameter('entityType', $entityType)
-                ->setParameter('ids', Uuid::fromHexToBytesList(array_values($ids)), ArrayParameterType::BINARY)
+                ->setParameter('ids', Uuid::fromHexToBytesList(array_keys($ids)), ArrayParameterType::BINARY)
                 ->executeStatement();
         } while (!empty($ids));
     }
