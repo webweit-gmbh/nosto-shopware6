@@ -87,8 +87,8 @@ class EntityChangelogSyncHandler implements JobHandlerInterface, GeneratingHandl
                 if (!is_string($entityId)) {
                     continue;
                 }
-
-                if ($entityType !== ProductDefinition::ENTITY_NAME) {
+                
+                if ($entityType !== ProductDefinition::ENTITY_NAME && $entityType !== 'order_placed') {
                     $ids[$entityId] = $entityId;
                     continue;
                 }

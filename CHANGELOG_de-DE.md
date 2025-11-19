@@ -1,3 +1,28 @@
+# 6.0.15
+* Fix: Unterstützung für SearchPageLoader-Injektion in Shopware version 6.7.2.0
+
+# 6.0.14
+* Neu: Möglichkeit, eine Standard-Bild-URL festzulegen, die verwendet wird, wenn für das Produkt kein Bild festgelegt ist.
+* Fix: Keine Ergebnisanalyse für die Suche senden, wenn die Weiterleitung aktiviert ist.
+* Fix: Fehlende benutzerdefinierte Felder zum Produkt-Tagging hinzufügen.
+* Fix: Überwachung der Cookie Erstellung, um Nosto zu initialisieren.
+
+# 6.0.13
+* Fix: "searchToken"-Fehler aktualisiert
+* Neu: Neue Felder zum Nosto-Produkt hinzugefügt, um den Preis pro Einheit an Nosto zu senden
+* Fix: Verhindert undefinierte Fehler bei A/B-Tests
+* Fix: Paginierung
+* Fix: "Ghost"-Variante für sw-button-process
+
+# 6.0.12
+* Fix: Verbesserungen bei der Bestellverfolgung für Search und CM2 Analytics
+
+# 6.0.11
+* Fix: Refactor initTags, um geladene Tags anstelle von Tag-Feldschlüsseln für die Wertabfrage wiederzuverwenden.
+
+# 6.0.10
+* Neu: Überprüfung der Lagerbestände für das günstigste Produkt
+
 # 6.0.9
 * Fix: Synchronisierungsgröße ist nun konfigurierbar
 * Fix: Tags anhand von IDs direkt aus der Datenbank abrufen
