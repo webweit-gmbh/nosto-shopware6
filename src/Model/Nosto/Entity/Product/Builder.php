@@ -155,6 +155,21 @@ class Builder
             $nostoProduct->setReviewCount($this->productHelper->getReviewsCount($product, $context));
         }
 
+        if ($product->getPurchaseUnit() !== null) {
+            $nostoProduct->setUnitPricingMeasure((string) $product->getPurchaseUnit());
+        }
+
+        if ($product->getReferenceUnit() !== null) {
+            $nostoProduct->setUnitPricingBaseMeasure((string) $product->getReferenceUnit());
+        }
+
+        if ($product->getUnit()) {
+            $unitName = $product->getUnit()->getTranslation('name') ?: $product->getUnit()->getName();
+            if (!empty($unitName)) {
+                $nostoProduct->setUnitPricingUnit($unitName);
+            }
+        }
+
         if ($product->getChildren()) {
             if ($this->configProvider->isEnabledVariations(
                 $channelId,
@@ -385,17 +400,17 @@ class Builder
         $nostoProduct->setTag1($this->getTagValues(
             $productEntity,
             $this->configProvider->getTagFieldKey(1, $channelId, $languageId),
-            $tagFieldKeys[1],
+            $tags,
         ));
         $nostoProduct->setTag2($this->getTagValues(
             $productEntity,
             $this->configProvider->getTagFieldKey(2, $channelId, $languageId),
-            $tagFieldKeys[2],
+            $tags,
         ));
         $nostoProduct->setTag3($this->getTagValues(
             $productEntity,
             $this->configProvider->getTagFieldKey(3, $channelId, $languageId),
-            $tagFieldKeys[3],
+            $tags,
         ));
     }
 
