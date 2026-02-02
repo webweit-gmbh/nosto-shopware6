@@ -10,12 +10,15 @@ use Nosto\NostoIntegration\Enums\ProductIdentifierOptions;
 use Nosto\NostoIntegration\Model\ConfigProvider;
 use Nosto\NostoIntegration\Model\Nosto\Account;
 use Nosto\NostoIntegration\Traits\SearchResultHelper;
+use Nosto\NostoIntegration\Utils\NostoCriteriaFactory;
 use Nosto\NostoIntegration\Utils\SearchHelper;
 use Nosto\Operation\Category\AnalyticsCategoryTrackingGraphql;
 use Psr\Log\LoggerInterface;
 use Shopware\Core\Content\Category\CategoryDefinition;
 use Shopware\Core\Content\Category\CategoryEntity;
 use Shopware\Core\Content\Product\Aggregate\ProductVisibility\ProductVisibilityDefinition;
+use Shopware\Core\Content\Product\Events\ProductListingCriteriaEvent;
+use Shopware\Core\Content\Product\Events\ProductListingResultEvent;
 use Shopware\Core\Content\Product\ProductEntity;
 use Shopware\Core\Content\Product\SalesChannel\Listing\AbstractProductListingRoute;
 use Shopware\Core\Content\Product\SalesChannel\Listing\Processor\CompositeListingProcessor;
@@ -32,6 +35,7 @@ use Shopware\Core\Framework\Routing\RoutingException;
 use Shopware\Core\System\SalesChannel\Entity\SalesChannelRepository;
 use Shopware\Core\System\SalesChannel\SalesChannelContext;
 use Symfony\Component\HttpFoundation\Request;
+use Symfony\Contracts\EventDispatcher\EventDispatcherInterface;
 
 class ProductListingRoute extends AbstractProductListingRoute
 {
@@ -46,6 +50,7 @@ class ProductListingRoute extends AbstractProductListingRoute
         private readonly ConfigProvider $configProvider,
         private readonly LoggerInterface $logger,
         private readonly Account\Provider $accountProvider,
+        private readonly EventDispatcherInterface $eventDispatcher,
     ) {
     }
 
@@ -81,32 +86,45 @@ class ProductListingRoute extends AbstractProductListingRoute
                 return $this->decorated->load($categoryId, $request, $context, $criteria);
             }
 
-            $criteria->addFilter(
+            $listingCriteria = $criteria ?? NostoCriteriaFactory::create();
+            $hasExternalFilters = $listingCriteria->hasState('nosto.external-filters')
+                || \count($listingCriteria->getFilters()) > 0
+                || \count($listingCriteria->getPostFilters()) > 0;
+            $listingCriteria->addFilter(
                 new ProductAvailableFilter(
                     $context->getSalesChannel()->getId(),
                     ProductVisibilityDefinition::VISIBILITY_ALL,
                 ),
             );
-            /** @var CategoryEntity $category */
-            $criteria = new Criteria([$categoryId]);
-            $criteria->addAssociation('seoUrls');
-            $criteria->addAssociation('options.group');
+            $filterCountBefore = \count($listingCriteria->getFilters());
+            $postFilterCountBefore = \count($listingCriteria->getPostFilters());
+            $this->eventDispatcher->dispatch(
+                new ProductListingCriteriaEvent($request, $listingCriteria, $context),
+            );
+            $hasExternalFilters = $hasExternalFilters
+                || \count($listingCriteria->getFilters()) > $filterCountBefore
+                || \count($listingCriteria->getPostFilters()) > $postFilterCountBefore;
+
+            $categoryCriteria = NostoCriteriaFactory::createWithIds([$categoryId]);
+            $categoryCriteria->addAssociation('seoUrls');
+            $categoryCriteria->addAssociation('options.group');
 
             /** @var CategoryEntity $category */
             $category = $this->categoryRepository->search(
-                $criteria,
+                $categoryCriteria,
                 $context->getContext(),
             )->first();
 
-            $streamId = $this->extendCriteria($context, $criteria, $category);
+            $streamId = $this->extendCriteria($context, $listingCriteria, $category);
 
-            $this->listingProcessor->prepare($request, $criteria, $context);
+            $this->listingProcessor->prepare($request, $listingCriteria, $context);
 
             $productListing = ProductListingResult::createFrom(
-                $this->fetchProductsById($criteria, $context),
+                $this->fetchProductsById($listingCriteria, $context),
             );
 
             if (!$productListing->getElements()
+                && !$hasExternalFilters
                 && $this->configProvider->isEnabledFallbackMechanism(
                     $context->getSalesChannelId(),
                     $context->getLanguageId(),
@@ -122,6 +140,10 @@ class ProductListingRoute extends AbstractProductListingRoute
 
             $productListing->getAvailableSortings()->removeByKey(
                 ResolvedCriteriaProductSearchRoute::DEFAULT_SEARCH_SORT,
+            );
+
+            $this->eventDispatcher->dispatch(
+                new ProductListingResultEvent($request, $productListing, $context),
             );
 
             $this->sendImpressionAnalytics($context, $productListing, $category, $request);
