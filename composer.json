@@ -2,7 +2,6 @@
     "name": "nosto/nosto-integration",
     "description": "Nosto Integration",
     "type": "shopware-platform-plugin",
-    "version": "6.1.17",
     "license": "OSL-3.0",
     "authors": [
         {
