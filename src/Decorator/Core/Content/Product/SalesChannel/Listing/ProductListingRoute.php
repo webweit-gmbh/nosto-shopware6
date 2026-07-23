@@ -64,15 +64,21 @@ class ProductListingRoute extends AbstractProductListingRoute
         SalesChannelContext $context,
         Criteria $criteria = null,
     ): ProductListingRouteResponse {
-        $originalRequest = Request::create(
-            $request->getUri(),
-            $request->getMethod(),
-            $request->request->all(),
-            $request->cookies->all(),
-            $request->files->all(),
-            $request->server->all(),
-            $request->getContent(),
-        );
+        try {
+            $originalRequest = Request::create(
+                $request->getUri(),
+                $request->getMethod(),
+                $request->request->all(),
+                $request->cookies->all(),
+                $request->files->all(),
+                $request->server->all(),
+                $request->getContent(),
+            );
+        } catch (Exception $e) {
+            $this->logger->error($e->getMessage());
+            return $this->decorated->load($categoryId, $request, $context, $criteria);
+        }
+
         $originalContext = null;
         $originalCriteria = null;
 
