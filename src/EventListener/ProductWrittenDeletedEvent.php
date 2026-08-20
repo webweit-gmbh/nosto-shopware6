@@ -7,11 +7,11 @@ namespace Nosto\NostoIntegration\EventListener;
 use Nosto\NostoIntegration\Async\EventsWriter;
 use Nosto\NostoIntegration\Model\ConfigProvider;
 use Nosto\NostoIntegration\Model\Nosto\Entity\Helper\ProductHelper;
+use Shopware\Core\Content\Product\Events\ProductIndexerEvent;
 use Shopware\Core\Content\Product\ProductDefinition;
 use Shopware\Core\Content\Product\ProductEvents;
 use Shopware\Core\Framework\Context;
 use Shopware\Core\Framework\DataAbstractionLayer\Event\EntityDeleteEvent;
-use Shopware\Core\Framework\DataAbstractionLayer\Event\EntityWrittenEvent;
 use Shopware\Core\System\SalesChannel\SalesChannelContext;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Component\HttpKernel\Event\ResponseEvent;
@@ -32,7 +32,7 @@ class ProductWrittenDeletedEvent implements EventSubscriberInterface
     public static function getSubscribedEvents(): array
     {
         return [
-            ProductEvents::PRODUCT_WRITTEN_EVENT => 'onProductWritten',
+            ProductEvents::PRODUCT_INDEXER_EVENT => ['onProductIndex', -100],
             EntityDeleteEvent::class => 'beforeDelete',
             KernelEvents::RESPONSE => 'onResponse',
         ];
@@ -82,7 +82,7 @@ class ProductWrittenDeletedEvent implements EventSubscriberInterface
         }
     }
 
-    public function onProductWritten(EntityWrittenEvent $event): void
+    public function onProductIndex(ProductIndexerEvent $event): void
     {
         $orderNumberMapping = $this->productHelper->loadOrderNumberMapping(
             $event->getIds(),
@@ -92,7 +92,7 @@ class ProductWrittenDeletedEvent implements EventSubscriberInterface
 
         $this->writeEvents(
             array_keys($orderNumberMapping),
-            $event->getEntityName(),
+            ProductDefinition::ENTITY_NAME,
             $event->getContext(),
             $orderNumberMapping,
         );
